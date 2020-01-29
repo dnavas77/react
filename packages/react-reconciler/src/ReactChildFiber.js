@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9,50 +9,56 @@
 
 import type {ReactElement} from 'shared/ReactElementType';
 import type {ReactPortal} from 'shared/ReactTypes';
-import type {Fiber} from 'react-reconciler/src/ReactFiber';
-import type {ExpirationTime} from 'react-reconciler/src/ReactFiberExpirationTime';
+import type {Fiber} from './ReactFiber';
+import type {ExpirationTime} from './ReactFiberExpirationTime';
 
 import getComponentName from 'shared/getComponentName';
-import {Placement, Deletion} from 'shared/ReactTypeOfSideEffect';
+import {Placement, Deletion} from 'shared/ReactSideEffectTags';
 import {
   getIteratorFn,
   REACT_ELEMENT_TYPE,
   REACT_FRAGMENT_TYPE,
   REACT_PORTAL_TYPE,
+  REACT_CHUNK_TYPE,
 } from 'shared/ReactSymbols';
 import {
-  FunctionalComponent,
+  FunctionComponent,
   ClassComponent,
   HostText,
   HostPortal,
   Fragment,
-} from 'shared/ReactTypeOfWork';
-import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
-import emptyObject from 'fbjs/lib/emptyObject';
-import invariant from 'fbjs/lib/invariant';
-import warning from 'fbjs/lib/warning';
+  Chunk,
+} from 'shared/ReactWorkTags';
+import invariant from 'shared/invariant';
+import {warnAboutStringRefs, enableChunksAPI} from 'shared/ReactFeatureFlags';
 
 import {
   createWorkInProgress,
+  resetWorkInProgress,
   createFiberFromElement,
   createFiberFromFragment,
   createFiberFromText,
   createFiberFromPortal,
 } from './ReactFiber';
-import ReactDebugCurrentFiber from './ReactDebugCurrentFiber';
+import {emptyRefsObject} from './ReactFiberClassComponent';
+import {
+  getCurrentFiberStackInDev,
+  getStackByFiberInDevAndProd,
+} from './ReactCurrentFiber';
+import {isCompatibleFamilyForHotReloading} from './ReactFiberHotReloading';
 import {StrictMode} from './ReactTypeOfMode';
 
-const {getCurrentFiberStackAddendum} = ReactDebugCurrentFiber;
-
 let didWarnAboutMaps;
-let didWarnAboutStringRefInStrictMode;
+let didWarnAboutGenerators;
+let didWarnAboutStringRefs;
 let ownerHasKeyUseWarning;
 let ownerHasFunctionTypeWarning;
 let warnForMissingKey = (child: mixed) => {};
 
 if (__DEV__) {
   didWarnAboutMaps = false;
-  didWarnAboutStringRefInStrictMode = {};
+  didWarnAboutGenerators = false;
+  didWarnAboutStringRefs = {};
 
   /**
    * Warn if there's no key explicitly set on dynamic arrays of children or
@@ -77,21 +83,19 @@ if (__DEV__) {
     child._store.validated = true;
 
     const currentComponentErrorInfo =
-      'Each child in an array or iterator should have a unique ' +
+      'Each child in a list should have a unique ' +
       '"key" prop. See https://fb.me/react-warning-keys for ' +
       'more information.' +
-      (getCurrentFiberStackAddendum() || '');
+      getCurrentFiberStackInDev();
     if (ownerHasKeyUseWarning[currentComponentErrorInfo]) {
       return;
     }
     ownerHasKeyUseWarning[currentComponentErrorInfo] = true;
 
-    warning(
-      false,
-      'Each child in an array or iterator should have a unique ' +
+    console.error(
+      'Each child in a list should have a unique ' +
         '"key" prop. See https://fb.me/react-warning-keys for ' +
-        'more information.%s',
-      getCurrentFiberStackAddendum(),
+        'more information.',
     );
   };
 }
@@ -110,21 +114,44 @@ function coerceRef(
     typeof mixedRef !== 'object'
   ) {
     if (__DEV__) {
-      if (returnFiber.mode & StrictMode) {
-        const componentName = getComponentName(returnFiber) || 'Component';
-        if (!didWarnAboutStringRefInStrictMode[componentName]) {
-          warning(
-            false,
-            'A string ref, "%s", has been found within a strict mode tree. ' +
-              'String refs are a source of potential bugs and should be avoided. ' +
-              'We recommend using createRef() instead.' +
-              '\n%s' +
-              '\n\nLearn more about using refs safely here:' +
-              '\nhttps://fb.me/react-strict-mode-string-ref',
-            mixedRef,
-            getStackAddendumByWorkInProgressFiber(returnFiber),
-          );
-          didWarnAboutStringRefInStrictMode[componentName] = true;
+      // TODO: Clean this up once we turn on the string ref warning for
+      // everyone, because the strict mode case will no longer be relevant
+      if (
+        (returnFiber.mode & StrictMode || warnAboutStringRefs) &&
+        // We warn in ReactElement.js if owner and self are equal for string refs
+        // because these cannot be automatically converted to an arrow function
+        // using a codemod. Therefore, we don't have to warn about string refs again.
+        !(
+          element._owner &&
+          element._self &&
+          element._owner.stateNode !== element._self
+        )
+      ) {
+        const componentName = getComponentName(returnFiber.type) || 'Component';
+        if (!didWarnAboutStringRefs[componentName]) {
+          if (warnAboutStringRefs) {
+            console.error(
+              'Component "%s" contains the string ref "%s". Support for string refs ' +
+                'will be removed in a future major release. We recommend using ' +
+                'useRef() or createRef() instead. ' +
+                'Learn more about using refs safely here: ' +
+                'https://fb.me/react-strict-mode-string-ref%s',
+              componentName,
+              mixedRef,
+              getStackByFiberInDevAndProd(returnFiber),
+            );
+          } else {
+            console.error(
+              'A string ref, "%s", has been found within a strict mode tree. ' +
+                'String refs are a source of potential bugs and should be avoided. ' +
+                'We recommend using useRef() or createRef() instead. ' +
+                'Learn more about using refs safely here: ' +
+                'https://fb.me/react-strict-mode-string-ref%s',
+              mixedRef,
+              getStackByFiberInDevAndProd(returnFiber),
+            );
+          }
+          didWarnAboutStringRefs[componentName] = true;
         }
       }
     }
@@ -136,7 +163,8 @@ function coerceRef(
         const ownerFiber = ((owner: any): Fiber);
         invariant(
           ownerFiber.tag === ClassComponent,
-          'Stateless function components cannot have refs.',
+          'Function components cannot have refs. ' +
+            'Did you mean to use React.forwardRef()?',
         );
         inst = ownerFiber.stateNode;
       }
@@ -151,12 +179,17 @@ function coerceRef(
       if (
         current !== null &&
         current.ref !== null &&
+        typeof current.ref === 'function' &&
         current.ref._stringRef === stringRef
       ) {
         return current.ref;
       }
       const ref = function(value) {
-        const refs = inst.refs === emptyObject ? (inst.refs = {}) : inst.refs;
+        let refs = inst.refs;
+        if (refs === emptyRefsObject) {
+          // This is a lazy pooled frozen object, so we need to initialize.
+          refs = inst.refs = {};
+        }
         if (value === null) {
           delete refs[stringRef];
         } else {
@@ -168,13 +201,13 @@ function coerceRef(
     } else {
       invariant(
         typeof mixedRef === 'string',
-        'Expected ref to be a function or a string.',
+        'Expected ref to be a function, a string, an object returned by React.createRef(), or null.',
       );
       invariant(
         element._owner,
         'Element ref was specified as a string (%s) but no owner was set. This could happen for one of' +
           ' the following reasons:\n' +
-          '1. You may be adding a ref to a functional component\n' +
+          '1. You may be adding a ref to a function component\n' +
           "2. You may be adding a ref to a component that was not created inside a component's render method\n" +
           '3. You have multiple copies of React loaded\n' +
           'See https://fb.me/react-refs-must-have-owner for more information.',
@@ -192,7 +225,7 @@ function throwOnInvalidObjectType(returnFiber: Fiber, newChild: Object) {
       addendum =
         ' If you meant to render a collection of children, use an array ' +
         'instead.' +
-        (getCurrentFiberStackAddendum() || '');
+        getCurrentFiberStackInDev();
     }
     invariant(
       false,
@@ -206,24 +239,24 @@ function throwOnInvalidObjectType(returnFiber: Fiber, newChild: Object) {
 }
 
 function warnOnFunctionType() {
-  const currentComponentErrorInfo =
-    'Functions are not valid as a React child. This may happen if ' +
-    'you return a Component instead of <Component /> from render. ' +
-    'Or maybe you meant to call this function rather than return it.' +
-    (getCurrentFiberStackAddendum() || '');
-
-  if (ownerHasFunctionTypeWarning[currentComponentErrorInfo]) {
-    return;
-  }
-  ownerHasFunctionTypeWarning[currentComponentErrorInfo] = true;
-
-  warning(
-    false,
-    'Functions are not valid as a React child. This may happen if ' +
+  if (__DEV__) {
+    const currentComponentErrorInfo =
+      'Functions are not valid as a React child. This may happen if ' +
       'you return a Component instead of <Component /> from render. ' +
-      'Or maybe you meant to call this function rather than return it.%s',
-    getCurrentFiberStackAddendum() || '',
-  );
+      'Or maybe you meant to call this function rather than return it.' +
+      getCurrentFiberStackInDev();
+
+    if (ownerHasFunctionTypeWarning[currentComponentErrorInfo]) {
+      return;
+    }
+    ownerHasFunctionTypeWarning[currentComponentErrorInfo] = true;
+
+    console.error(
+      'Functions are not valid as a React child. This may happen if ' +
+        'you return a Component instead of <Component /> from render. ' +
+        'Or maybe you meant to call this function rather than return it.',
+    );
+  }
 }
 
 // This wrapper function exists because I expect to clone the code in each path
@@ -371,27 +404,47 @@ function ChildReconciler(shouldTrackSideEffects) {
     element: ReactElement,
     expirationTime: ExpirationTime,
   ): Fiber {
-    if (current !== null && current.type === element.type) {
-      // Move based on index
-      const existing = useFiber(current, element.props, expirationTime);
-      existing.ref = coerceRef(returnFiber, current, element);
-      existing.return = returnFiber;
-      if (__DEV__) {
-        existing._debugSource = element._source;
-        existing._debugOwner = element._owner;
+    if (current !== null) {
+      if (
+        current.elementType === element.type ||
+        // Keep this check inline so it only runs on the false path:
+        (__DEV__ ? isCompatibleFamilyForHotReloading(current, element) : false)
+      ) {
+        // Move based on index
+        const existing = useFiber(current, element.props, expirationTime);
+        existing.ref = coerceRef(returnFiber, current, element);
+        existing.return = returnFiber;
+        if (__DEV__) {
+          existing._debugSource = element._source;
+          existing._debugOwner = element._owner;
+        }
+        return existing;
+      } else if (
+        enableChunksAPI &&
+        current.tag === Chunk &&
+        element.type.$$typeof === REACT_CHUNK_TYPE &&
+        element.type.render === current.type.render
+      ) {
+        // Same as above but also update the .type field.
+        const existing = useFiber(current, element.props, expirationTime);
+        existing.return = returnFiber;
+        existing.type = element.type;
+        if (__DEV__) {
+          existing._debugSource = element._source;
+          existing._debugOwner = element._owner;
+        }
+        return existing;
       }
-      return existing;
-    } else {
-      // Insert
-      const created = createFiberFromElement(
-        element,
-        returnFiber.mode,
-        expirationTime,
-      );
-      created.ref = coerceRef(returnFiber, current, element);
-      created.return = returnFiber;
-      return created;
     }
+    // Insert
+    const created = createFiberFromElement(
+      element,
+      returnFiber.mode,
+      expirationTime,
+    );
+    created.ref = coerceRef(returnFiber, current, element);
+    created.return = returnFiber;
+    return created;
   }
 
   function updatePortal(
@@ -706,15 +759,13 @@ function ChildReconciler(shouldTrackSideEffects) {
             knownKeys.add(key);
             break;
           }
-          warning(
-            false,
+          console.error(
             'Encountered two children with the same key, `%s`. ' +
               'Keys should be unique so that components maintain their identity ' +
               'across updates. Non-unique keys may cause children to be ' +
               'duplicated and/or omitted — the behavior is unsupported and ' +
-              'could change in a future version.%s',
+              'could change in a future version.',
             key,
-            getCurrentFiberStackAddendum(),
           );
           break;
         default:
@@ -730,7 +781,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     newChildren: Array<*>,
     expirationTime: ExpirationTime,
   ): Fiber | null {
-    // This algorithm can't optimize by searching from boths ends since we
+    // This algorithm can't optimize by searching from both ends since we
     // don't have backpointers on fibers. I'm trying to see how far we can get
     // with that model. If it ends up not being worth the tradeoffs, we can
     // add it later.
@@ -825,7 +876,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           newChildren[newIdx],
           expirationTime,
         );
-        if (!newFiber) {
+        if (newFiber === null) {
           continue;
         }
         lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
@@ -852,7 +903,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         newChildren[newIdx],
         expirationTime,
       );
-      if (newFiber) {
+      if (newFiber !== null) {
         if (shouldTrackSideEffects) {
           if (newFiber.alternate !== null) {
             // The new fiber is a work in progress, but if there exists a
@@ -900,19 +951,35 @@ function ChildReconciler(shouldTrackSideEffects) {
     );
 
     if (__DEV__) {
+      // We don't support rendering Generators because it's a mutation.
+      // See https://github.com/facebook/react/issues/12995
+      if (
+        typeof Symbol === 'function' &&
+        // $FlowFixMe Flow doesn't know about toStringTag
+        newChildrenIterable[Symbol.toStringTag] === 'Generator'
+      ) {
+        if (!didWarnAboutGenerators) {
+          console.error(
+            'Using Generators as children is unsupported and will likely yield ' +
+              'unexpected results because enumerating a generator mutates it. ' +
+              'You may convert it to an array with `Array.from()` or the ' +
+              '`[...spread]` operator before rendering. Keep in mind ' +
+              'you might need to polyfill these features for older browsers.',
+          );
+        }
+        didWarnAboutGenerators = true;
+      }
+
       // Warn about using Maps as children
-      if (typeof newChildrenIterable.entries === 'function') {
-        const possibleMap = (newChildrenIterable: any);
-        if (possibleMap.entries === iteratorFn) {
-          warning(
-            didWarnAboutMaps,
+      if ((newChildrenIterable: any).entries === iteratorFn) {
+        if (!didWarnAboutMaps) {
+          console.error(
             'Using Maps as children is unsupported and will likely yield ' +
               'unexpected results. Convert it to a sequence/iterable of keyed ' +
-              'ReactElements instead.%s',
-            getCurrentFiberStackAddendum(),
+              'ReactElements instead.',
           );
-          didWarnAboutMaps = true;
         }
+        didWarnAboutMaps = true;
       }
 
       // First, validate keys.
@@ -962,7 +1029,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         // unfortunate because it triggers the slow path all the time. We need
         // a better way to communicate whether this was a miss or null,
         // boolean, undefined, etc.
-        if (!oldFiber) {
+        if (oldFiber === null) {
           oldFiber = nextOldFiber;
         }
         break;
@@ -1098,30 +1165,67 @@ function ChildReconciler(shouldTrackSideEffects) {
       // TODO: If key === null and child.key === null, then this only applies to
       // the first item in the list.
       if (child.key === key) {
-        if (
-          child.tag === Fragment
-            ? element.type === REACT_FRAGMENT_TYPE
-            : child.type === element.type
-        ) {
-          deleteRemainingChildren(returnFiber, child.sibling);
-          const existing = useFiber(
-            child,
-            element.type === REACT_FRAGMENT_TYPE
-              ? element.props.children
-              : element.props,
-            expirationTime,
-          );
-          existing.ref = coerceRef(returnFiber, child, element);
-          existing.return = returnFiber;
-          if (__DEV__) {
-            existing._debugSource = element._source;
-            existing._debugOwner = element._owner;
+        switch (child.tag) {
+          case Fragment: {
+            if (element.type === REACT_FRAGMENT_TYPE) {
+              deleteRemainingChildren(returnFiber, child.sibling);
+              const existing = useFiber(
+                child,
+                element.props.children,
+                expirationTime,
+              );
+              existing.return = returnFiber;
+              if (__DEV__) {
+                existing._debugSource = element._source;
+                existing._debugOwner = element._owner;
+              }
+              return existing;
+            }
+            break;
           }
-          return existing;
-        } else {
-          deleteRemainingChildren(returnFiber, child);
-          break;
+          case Chunk:
+            if (enableChunksAPI) {
+              if (
+                element.type.$$typeof === REACT_CHUNK_TYPE &&
+                element.type.render === child.type.render
+              ) {
+                deleteRemainingChildren(returnFiber, child.sibling);
+                const existing = useFiber(child, element.props, expirationTime);
+                existing.type = element.type;
+                existing.return = returnFiber;
+                if (__DEV__) {
+                  existing._debugSource = element._source;
+                  existing._debugOwner = element._owner;
+                }
+                return existing;
+              }
+            }
+          // We intentionally fallthrough here if enableChunksAPI is not on.
+          // eslint-disable-next-lined no-fallthrough
+          default: {
+            if (
+              child.elementType === element.type ||
+              // Keep this check inline so it only runs on the false path:
+              (__DEV__
+                ? isCompatibleFamilyForHotReloading(child, element)
+                : false)
+            ) {
+              deleteRemainingChildren(returnFiber, child.sibling);
+              const existing = useFiber(child, element.props, expirationTime);
+              existing.ref = coerceRef(returnFiber, child, element);
+              existing.return = returnFiber;
+              if (__DEV__) {
+                existing._debugSource = element._source;
+                existing._debugOwner = element._owner;
+              }
+              return existing;
+            }
+            break;
+          }
         }
+        // Didn't match.
+        deleteRemainingChildren(returnFiber, child);
+        break;
       } else {
         deleteChild(returnFiber, child);
       }
@@ -1210,12 +1314,12 @@ function ChildReconciler(shouldTrackSideEffects) {
     // Handle top level unkeyed fragments as if they were arrays.
     // This leads to an ambiguity between <>{[...]}</> and <>...</>.
     // We treat the ambiguous cases above the same.
-    if (
+    const isUnkeyedTopLevelFragment =
       typeof newChild === 'object' &&
       newChild !== null &&
       newChild.type === REACT_FRAGMENT_TYPE &&
-      newChild.key === null
-    ) {
+      newChild.key === null;
+    if (isUnkeyedTopLevelFragment) {
       newChild = newChild.props.children;
     }
 
@@ -1283,7 +1387,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         warnOnFunctionType();
       }
     }
-    if (typeof newChild === 'undefined') {
+    if (typeof newChild === 'undefined' && !isUnkeyedTopLevelFragment) {
       // If the new child is undefined, and the return fiber is a composite
       // component, throw an error. If Fiber return types are disabled,
       // we already threw above.
@@ -1300,7 +1404,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         // Intentionally fall through to the next case, which handles both
         // functions and classes
         // eslint-disable-next-lined no-fallthrough
-        case FunctionalComponent: {
+        case FunctionComponent: {
           const Component = returnFiber.type;
           invariant(
             false,
@@ -1355,4 +1459,16 @@ export function cloneChildFibers(
     newChild.return = workInProgress;
   }
   newChild.sibling = null;
+}
+
+// Reset a workInProgress child set to prepare it for a second pass.
+export function resetChildFibers(
+  workInProgress: Fiber,
+  renderExpirationTime: ExpirationTime,
+): void {
+  let child = workInProgress.child;
+  while (child !== null) {
+    resetWorkInProgress(child, renderExpirationTime);
+    child = child.sibling;
+  }
 }

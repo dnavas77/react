@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -8,8 +8,7 @@
  */
 
 import React from 'react';
-import invariant from 'fbjs/lib/invariant';
-import warning from 'fbjs/lib/warning';
+import invariant from 'shared/invariant';
 
 type Unsubscribe = () => void;
 
@@ -21,7 +20,7 @@ export function createSubscription<Property, Value>(
     getCurrentValue: (source: Property) => Value | void,
 
     // Setup a subscription for the subscribable value in props, and return an unsubscribe function.
-    // Return false to indicate the property cannot be unsubscribed from (e.g. native Promises).
+    // Return empty function if the property cannot be unsubscribed from (e.g. native Promises).
     // Due to the variety of change event types, subscribers should provide their own handlers.
     // Those handlers should not attempt to update state though;
     // They should call the callback() instead when a subscription changes.
@@ -30,29 +29,29 @@ export function createSubscription<Property, Value>(
       callback: (value: Value | void) => void,
     ) => Unsubscribe,
   |}>,
-): React$ComponentType<{
+): React$ComponentType<{|
   children: (value: Value | void) => React$Node,
   source: Property,
-}> {
+|}> {
   const {getCurrentValue, subscribe} = config;
 
-  warning(
-    typeof getCurrentValue === 'function',
-    'Subscription must specify a getCurrentValue function',
-  );
-  warning(
-    typeof subscribe === 'function',
-    'Subscription must specify a subscribe function',
-  );
+  if (__DEV__) {
+    if (typeof getCurrentValue !== 'function') {
+      console.error('Subscription must specify a getCurrentValue function');
+    }
+    if (typeof subscribe !== 'function') {
+      console.error('Subscription must specify a subscribe function');
+    }
+  }
 
-  type Props = {
+  type Props = {|
     children: (value: Value) => React$Element<any>,
     source: Property,
-  };
-  type State = {
+  |};
+  type State = {|
     source: Property,
     value: Value | void,
-  };
+  |};
 
   // Reference: https://gist.github.com/bvaughn/d569177d70b50b58bff69c3c4a5353f3
   class Subscription extends React.Component<Props, State> {
@@ -87,13 +86,13 @@ export function createSubscription<Property, Value>(
 
     componentDidUpdate(prevProps, prevState) {
       if (this.state.source !== prevState.source) {
-        this.unsubscribe(prevState);
+        this.unsubscribe();
         this.subscribe();
       }
     }
 
     componentWillUnmount() {
-      this.unsubscribe(this.state);
+      this.unsubscribe();
 
       // Track mounted to avoid calling setState after unmounting
       // For source like Promises that can't be unsubscribed from.
@@ -147,7 +146,7 @@ export function createSubscription<Property, Value>(
       }
     }
 
-    unsubscribe(state: State) {
+    unsubscribe() {
       if (typeof this._unsubscribe === 'function') {
         this._unsubscribe();
       }

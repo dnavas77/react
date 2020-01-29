@@ -1,35 +1,16 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @flow
+ * @flow strict
  */
 
-import invariant from 'fbjs/lib/invariant';
-
-// Exports ReactDOM.createRoot
 export const enableUserTimingAPI = __DEV__;
 
-// Mutating mode (React DOM, React ART, React Native):
-export const enableMutatingReconciler = true;
-// Experimental noop mode (currently unused):
-export const enableNoopReconciler = false;
-// Experimental persistent mode (Fabric):
-export const enablePersistentReconciler = false;
-// Experimental error-boundary API that can recover from errors within a single
-// render phase
-export const enableGetDerivedStateFromCatch = false;
-// Suspense
-export const enableSuspense = false;
-// Helps identify side effects in begin-phase lifecycle hooks and setState reducers:
-export const debugRenderPhaseSideEffects = false;
-
-// In some cases, StrictMode should also double-render lifecycles.
-// This can be confusing for tests though,
-// And it can be bad for performance in production.
-// This feature flag can be used to control the behavior:
+// Helps identify side effects in render-phase lifecycle hooks and setState
+// reducers by double invoking them in Strict Mode.
 export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
 
 // To preserve the "Pause on caught exceptions" behavior of the debugger, we
@@ -37,15 +18,99 @@ export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
 export const replayFailedUnitOfWorkWithInvokeGuardedCallback = __DEV__;
 
 // Warn about deprecated, async-unsafe lifecycles; relates to RFC #6:
-export const warnAboutDeprecatedLifecycles = false;
+export const warnAboutDeprecatedLifecycles = true;
 
 // Gather advanced timing metrics for Profiler subtrees.
-export const enableProfilerTimer = false;
+export const enableProfilerTimer = __PROFILE__;
 
-// Fires getDerivedStateFromProps for state *or* props changes
-export const fireGetDerivedStateFromPropsOnStateUpdates = true;
+// Trace which interactions trigger each commit.
+export const enableSchedulerTracing = __PROFILE__;
+
+// SSR experiments
+export const enableSuspenseServerRenderer = __EXPERIMENTAL__;
+export const enableSelectiveHydration = __EXPERIMENTAL__;
+
+// Flight experiments
+export const enableChunksAPI = __EXPERIMENTAL__;
+
+// Only used in www builds.
+export const enableSchedulerDebugging = false;
 
 // Only used in www builds.
 export function addUserTimingListener() {
-  invariant(false, 'Not implemented.');
+  throw new Error('Not implemented.');
 }
+
+// Disable javascript: URL strings in href for XSS protection.
+export const disableJavaScriptURLs = false;
+
+// These APIs will no longer be "unstable" in the upcoming 16.7 release,
+// Control this behavior with a flag to support 16.6 minor releases in the meanwhile.
+export const exposeConcurrentModeAPIs = __EXPERIMENTAL__;
+
+export const warnAboutShorthandPropertyCollision = false;
+
+// Experimental React Flare event system and event components support.
+export const enableDeprecatedFlareAPI = false;
+
+// Experimental Host Component support.
+export const enableFundamentalAPI = false;
+
+// Experimental Scope support.
+export const enableScopeAPI = false;
+
+// New API for JSX transforms to target - https://github.com/reactjs/rfcs/pull/107
+export const enableJSXTransformAPI = false;
+
+// We will enforce mocking scheduler with scheduler/unstable_mock at some point. (v17?)
+// Till then, we warn about the missing mock, but still fallback to a legacy mode compatible version
+export const warnAboutUnmockedScheduler = false;
+
+// For tests, we flush suspense fallbacks in an act scope;
+// *except* in some of our own tests, where we test incremental loading states.
+export const flushSuspenseFallbacksInTests = true;
+
+// Add a callback property to suspense to notify which promises are currently
+// in the update queue. This allows reporting and tracing of what is causing
+// the user to see a loading state.
+// Also allows hydration callbacks to fire when a dehydrated boundary gets
+// hydrated or deleted.
+export const enableSuspenseCallback = false;
+
+// Part of the simplification of React.createElement so we can eventually move
+// from React.createElement to React.jsx
+// https://github.com/reactjs/rfcs/blob/createlement-rfc/text/0000-create-element-changes.md
+export const warnAboutDefaultPropsOnFunctionComponents = false;
+
+export const disableSchedulerTimeoutBasedOnReactExpirationTime = false;
+
+export const enableTrainModelFix = true;
+
+export const enableTrustedTypesIntegration = false;
+
+// Flag to turn event.target and event.currentTarget in ReactNative from a reactTag to a component instance
+export const enableNativeTargetAsInstance = false;
+
+// --------------------------
+// Future APIs to be deprecated
+// --------------------------
+
+// Prevent the value and checked attributes from syncing
+// with their related DOM properties
+export const disableInputAttributeSyncing = false;
+
+export const warnAboutStringRefs = false;
+
+export const disableLegacyContext = false;
+
+// Disables React.createFactory
+export const disableCreateFactory = false;
+
+// Disables children for <textarea> elements
+export const disableTextareaChildren = false;
+
+// Disables ReactDOM.unstable_renderSubtreeIntoContainer
+export const disableUnstableRenderSubtreeIntoContainer = false;
+
+// Disables ReactDOM.unstable_createPortal
+export const disableUnstableCreatePortal = false;

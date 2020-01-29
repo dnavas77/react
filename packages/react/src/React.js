@@ -1,40 +1,71 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
-import assign from 'object-assign';
 import ReactVersion from 'shared/ReactVersion';
 import {
-  REACT_ASYNC_MODE_TYPE,
   REACT_FRAGMENT_TYPE,
   REACT_PROFILER_TYPE,
   REACT_STRICT_MODE_TYPE,
-  REACT_TIMEOUT_TYPE,
+  REACT_SUSPENSE_TYPE,
+  REACT_SUSPENSE_LIST_TYPE,
 } from 'shared/ReactSymbols';
-import {enableSuspense} from 'shared/ReactFeatureFlags';
 
 import {Component, PureComponent} from './ReactBaseClasses';
 import {createRef} from './ReactCreateRef';
 import {forEach, map, count, toArray, only} from './ReactChildren';
-import ReactCurrentOwner from './ReactCurrentOwner';
 import {
   createElement,
   createFactory,
   cloneElement,
   isValidElement,
+  jsx,
 } from './ReactElement';
 import {createContext} from './ReactContext';
+import {lazy} from './ReactLazy';
 import forwardRef from './forwardRef';
+import memo from './memo';
+import chunk from './chunk';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useDebugValue,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useResponder,
+  useTransition,
+  useDeferredValue,
+} from './ReactHooks';
+import {withSuspenseConfig} from './ReactBatchConfig';
 import {
   createElementWithValidation,
   createFactoryWithValidation,
   cloneElementWithValidation,
+  jsxWithValidation,
+  jsxWithValidationStatic,
+  jsxWithValidationDynamic,
 } from './ReactElementValidator';
-import ReactDebugCurrentFrame from './ReactDebugCurrentFrame';
-
+import ReactSharedInternals from './ReactSharedInternals';
+import createFundamental from 'shared/createFundamentalComponent';
+import createResponder from 'shared/createEventResponder';
+import createScope from 'shared/createScope';
+import {
+  enableJSXTransformAPI,
+  enableDeprecatedFlareAPI,
+  enableFundamentalAPI,
+  enableScopeAPI,
+  exposeConcurrentModeAPIs,
+  enableChunksAPI,
+  disableCreateFactory,
+} from 'shared/ReactFeatureFlags';
 const React = {
   Children: {
     map,
@@ -50,39 +81,78 @@ const React = {
 
   createContext,
   forwardRef,
+  lazy,
+  memo,
+
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useDebugValue,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
 
   Fragment: REACT_FRAGMENT_TYPE,
+  Profiler: REACT_PROFILER_TYPE,
   StrictMode: REACT_STRICT_MODE_TYPE,
-  unstable_AsyncMode: REACT_ASYNC_MODE_TYPE,
-  unstable_Profiler: REACT_PROFILER_TYPE,
-  Timeout: REACT_TIMEOUT_TYPE,
+  Suspense: REACT_SUSPENSE_TYPE,
 
   createElement: __DEV__ ? createElementWithValidation : createElement,
   cloneElement: __DEV__ ? cloneElementWithValidation : cloneElement,
-  createFactory: __DEV__ ? createFactoryWithValidation : createFactory,
   isValidElement: isValidElement,
 
   version: ReactVersion,
 
-  __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: {
-    ReactCurrentOwner,
-    // Used by renderers to avoid bundling object-assign twice in UMD bundles:
-    assign,
-  },
+  __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: ReactSharedInternals,
 };
 
-if (enableSuspense) {
-  React.Timeout = REACT_TIMEOUT_TYPE;
+if (!disableCreateFactory) {
+  React.createFactory = __DEV__ ? createFactoryWithValidation : createFactory;
 }
 
-if (__DEV__) {
-  Object.assign(React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED, {
-    // These should not be included in production.
-    ReactDebugCurrentFrame,
-    // Shim for React DOM 16.0.0 which still destructured (but not used) this.
-    // TODO: remove in React 17.0.
-    ReactComponentTreeHook: {},
-  });
+if (exposeConcurrentModeAPIs) {
+  React.useTransition = useTransition;
+  React.useDeferredValue = useDeferredValue;
+  React.SuspenseList = REACT_SUSPENSE_LIST_TYPE;
+  React.unstable_withSuspenseConfig = withSuspenseConfig;
+}
+
+if (enableChunksAPI) {
+  React.chunk = chunk;
+}
+
+if (enableDeprecatedFlareAPI) {
+  React.DEPRECATED_useResponder = useResponder;
+  React.DEPRECATED_createResponder = createResponder;
+}
+
+if (enableFundamentalAPI) {
+  React.unstable_createFundamental = createFundamental;
+}
+
+if (enableScopeAPI) {
+  React.unstable_createScope = createScope;
+}
+
+// Note: some APIs are added with feature flags.
+// Make sure that stable builds for open source
+// don't modify the React object to avoid deopts.
+// Also let's not expose their names in stable builds.
+
+if (enableJSXTransformAPI) {
+  if (__DEV__) {
+    React.jsxDEV = jsxWithValidation;
+    React.jsx = jsxWithValidationDynamic;
+    React.jsxs = jsxWithValidationStatic;
+  } else {
+    React.jsx = jsx;
+    // we may want to special case jsxs internally to take advantage of static children.
+    // for now we can ship identical prod functions
+    React.jsxs = jsx;
+  }
 }
 
 export default React;

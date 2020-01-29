@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -21,11 +21,6 @@ export function logCapturedError(capturedError: CapturedError): void {
   }
 
   const error = (capturedError.error: any);
-  const suppressLogging = error && error.suppressReactErrorLogging;
-  if (suppressLogging) {
-    return;
-  }
-
   if (__DEV__) {
     const {
       componentName,
@@ -34,6 +29,25 @@ export function logCapturedError(capturedError: CapturedError): void {
       errorBoundaryFound,
       willRetry,
     } = capturedError;
+
+    // Browsers support silencing uncaught errors by calling
+    // `preventDefault()` in window `error` handler.
+    // We record this information as an expando on the error.
+    if (error != null && error._suppressLogging) {
+      if (errorBoundaryFound && willRetry) {
+        // The error is recoverable and was silenced.
+        // Ignore it and don't print the stack addendum.
+        // This is handy for testing error boundaries without noise.
+        return;
+      }
+      // The error is fatal. Since the silencing might have
+      // been accidental, we'll surface it anyway.
+      // However, the browser would have silenced the original error
+      // so we'll print it first, and then print the stack addendum.
+      console['error'](error); // Don't transform to our wrapper
+      // For a more detailed description of this block, see:
+      // https://github.com/facebook/react/pull/13384
+    }
 
     const componentNameMessage = componentName
       ? `The above error occurred in the <${componentName}> component:`
@@ -64,11 +78,11 @@ export function logCapturedError(capturedError: CapturedError): void {
     // We don't include the original error message and JS stack because the browser
     // has already printed it. Even if the application swallows the error, it is still
     // displayed by the browser thanks to the DEV-only fake event trick in ReactErrorUtils.
-    console.error(combinedMessage);
+    console['error'](combinedMessage); // Don't transform to our wrapper
   } else {
     // In production, we print the error directly.
     // This will include the message, the JS stack, and anything the browser wants to show.
     // We pass the error object instead of custom message so that the browser displays the error natively.
-    console.error(error);
+    console['error'](error); // Don't transform to our wrapper
   }
 }

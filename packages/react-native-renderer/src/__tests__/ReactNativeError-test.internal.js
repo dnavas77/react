@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -25,11 +25,23 @@ describe('ReactNativeError', () => {
 
     React = require('react');
     ReactNative = require('react-native-renderer');
-    createReactNativeComponentClass = require('ReactNativeViewConfigRegistry')
-      .register;
+    createReactNativeComponentClass = require('react-native/Libraries/ReactPrivate/ReactNativePrivateInterface')
+      .ReactNativeViewConfigRegistry.register;
     computeComponentStackForErrorReporting =
       ReactNative.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
         .computeComponentStackForErrorReporting;
+  });
+
+  it('should throw error if null component registration getter is used', () => {
+    expect(() => {
+      try {
+        createReactNativeComponentClass('View', null);
+      } catch (e) {
+        throw new Error(e.toString());
+      }
+    }).toThrow(
+      'View config getter callback for component `View` must be a function (received `null`)',
+    );
   });
 
   it('should be able to extract a component stack from a native view', () => {
@@ -40,16 +52,16 @@ describe('ReactNativeError', () => {
 
     const ref = React.createRef();
 
-    function FunctionalComponent(props) {
+    function FunctionComponent(props) {
       return props.children;
     }
 
     class ClassComponent extends React.Component {
       render() {
         return (
-          <FunctionalComponent>
+          <FunctionComponent>
             <View foo="test" ref={ref} />
-          </FunctionalComponent>
+          </FunctionComponent>
         );
       }
     }
@@ -66,14 +78,14 @@ describe('ReactNativeError', () => {
       expect(componentStack).toBe(
         '\n' +
           '    in View (at **)\n' +
-          '    in FunctionalComponent (at **)\n' +
+          '    in FunctionComponent (at **)\n' +
           '    in ClassComponent (at **)',
       );
     } else {
       expect(componentStack).toBe(
         '\n' +
           '    in View\n' +
-          '    in FunctionalComponent\n' +
+          '    in FunctionComponent\n' +
           '    in ClassComponent',
       );
     }

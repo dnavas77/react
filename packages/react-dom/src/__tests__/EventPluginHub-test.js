@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -27,7 +27,7 @@ describe('EventPluginHub', () => {
       node = ReactTestUtils.renderIntoDocument(
         <div onClick="not a function" />,
       );
-    }).toWarnDev(
+    }).toErrorDev(
       'Expected `onClick` listener to be a function, instead got a value of `string` type.',
     );
     expect(() => ReactTestUtils.SimulateNative.click(node)).toThrowError(

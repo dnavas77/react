@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -177,7 +177,7 @@ describe('ReactDOMComponentTree', () => {
 
     const component = <Controlled />;
     const instance = ReactDOM.render(component, container);
-    expect(() => simulateInput(instance.a, finishValue)).toWarnDev(
+    expect(() => simulateInput(instance.a, finishValue)).toErrorDev(
       'Warning: A component is changing an uncontrolled input of ' +
         'type text to be controlled. Input elements should not ' +
         'switch from uncontrolled to controlled (or vice versa). ' +
@@ -190,11 +190,14 @@ describe('ReactDOMComponentTree', () => {
   it('finds instance of node that is attempted to be unmounted', () => {
     const component = <div />;
     const node = ReactDOM.render(<div>{component}</div>, container);
-    expect(() => ReactDOM.unmountComponentAtNode(node)).toWarnDev(
+    expect(() =>
+      ReactDOM.unmountComponentAtNode(node),
+    ).toErrorDev(
       "unmountComponentAtNode(): The node you're attempting to unmount " +
         'was rendered by React and is not a top-level container. You may ' +
         'have accidentally passed in a React root node instead of its ' +
         'container.',
+      {withoutStack: true},
     );
   });
 
@@ -206,11 +209,14 @@ describe('ReactDOMComponentTree', () => {
     );
     const anotherComponent = <div />;
     const instance = ReactDOM.render(component, container);
-    expect(() => ReactDOM.render(anotherComponent, instance)).toWarnDev(
+    expect(() =>
+      ReactDOM.render(anotherComponent, instance),
+    ).toErrorDev(
       'render(...): Replacing React-rendered children with a new root ' +
         'component. If you intended to update the children of this node, ' +
         'you should instead have the existing children update their state ' +
         'and render the new components instead of calling ReactDOM.render.',
+      {withoutStack: true},
     );
   });
 });

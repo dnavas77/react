@@ -1,26 +1,44 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
-import {accumulateEnterLeaveDispatches} from 'events/EventPropagators';
+import {accumulateEnterLeaveDispatches} from 'legacy-events/EventPropagators';
 
+import {
+  TOP_MOUSE_OUT,
+  TOP_MOUSE_OVER,
+  TOP_POINTER_OUT,
+  TOP_POINTER_OVER,
+} from './DOMTopLevelEventTypes';
+import {IS_REPLAYED, IS_FIRST_ANCESTOR} from 'legacy-events/EventSystemFlags';
 import SyntheticMouseEvent from './SyntheticMouseEvent';
+import SyntheticPointerEvent from './SyntheticPointerEvent';
 import {
   getClosestInstanceFromNode,
   getNodeFromInstance,
 } from '../client/ReactDOMComponentTree';
+import {HostComponent, HostText} from 'shared/ReactWorkTags';
+import {getNearestMountedFiber} from 'react-reconciler/reflection';
 
 const eventTypes = {
   mouseEnter: {
     registrationName: 'onMouseEnter',
-    dependencies: ['topMouseOut', 'topMouseOver'],
+    dependencies: [TOP_MOUSE_OUT, TOP_MOUSE_OVER],
   },
   mouseLeave: {
     registrationName: 'onMouseLeave',
-    dependencies: ['topMouseOut', 'topMouseOver'],
+    dependencies: [TOP_MOUSE_OUT, TOP_MOUSE_OVER],
+  },
+  pointerEnter: {
+    registrationName: 'onPointerEnter',
+    dependencies: [TOP_POINTER_OUT, TOP_POINTER_OVER],
+  },
+  pointerLeave: {
+    registrationName: 'onPointerLeave',
+    dependencies: [TOP_POINTER_OUT, TOP_POINTER_OVER],
   },
 };
 
@@ -39,15 +57,27 @@ const EnterLeaveEventPlugin = {
     targetInst,
     nativeEvent,
     nativeEventTarget,
+    eventSystemFlags,
   ) {
+    const isOverEvent =
+      topLevelType === TOP_MOUSE_OVER || topLevelType === TOP_POINTER_OVER;
+    const isOutEvent =
+      topLevelType === TOP_MOUSE_OUT || topLevelType === TOP_POINTER_OUT;
+
     if (
-      topLevelType === 'topMouseOver' &&
+      isOverEvent &&
+      (eventSystemFlags & IS_REPLAYED) === 0 &&
       (nativeEvent.relatedTarget || nativeEvent.fromElement)
     ) {
+      // If this is an over event with a target, then we've already dispatched
+      // the event in the out event of the other target. If this is replayed,
+      // then it's because we couldn't dispatch against this target previously
+      // so we have to do it now instead.
       return null;
     }
-    if (topLevelType !== 'topMouseOut' && topLevelType !== 'topMouseOver') {
-      // Must not be a mouse in or mouse out - ignoring.
+
+    if (!isOutEvent && !isOverEvent) {
+      // Must not be a mouse or pointer in or out - ignoring.
       return null;
     }
 
@@ -67,10 +97,19 @@ const EnterLeaveEventPlugin = {
 
     let from;
     let to;
-    if (topLevelType === 'topMouseOut') {
+    if (isOutEvent) {
       from = targetInst;
       const related = nativeEvent.relatedTarget || nativeEvent.toElement;
       to = related ? getClosestInstanceFromNode(related) : null;
+      if (to !== null) {
+        const nearestMounted = getNearestMountedFiber(to);
+        if (
+          to !== nearestMounted ||
+          (to.tag !== HostComponent && to.tag !== HostText)
+        ) {
+          to = null;
+        }
+      }
     } else {
       // Moving to a node from outside the window.
       from = null;
@@ -82,30 +121,54 @@ const EnterLeaveEventPlugin = {
       return null;
     }
 
+    let eventInterface, leaveEventType, enterEventType, eventTypePrefix;
+
+    if (topLevelType === TOP_MOUSE_OUT || topLevelType === TOP_MOUSE_OVER) {
+      eventInterface = SyntheticMouseEvent;
+      leaveEventType = eventTypes.mouseLeave;
+      enterEventType = eventTypes.mouseEnter;
+      eventTypePrefix = 'mouse';
+    } else if (
+      topLevelType === TOP_POINTER_OUT ||
+      topLevelType === TOP_POINTER_OVER
+    ) {
+      eventInterface = SyntheticPointerEvent;
+      leaveEventType = eventTypes.pointerLeave;
+      enterEventType = eventTypes.pointerEnter;
+      eventTypePrefix = 'pointer';
+    }
+
     const fromNode = from == null ? win : getNodeFromInstance(from);
     const toNode = to == null ? win : getNodeFromInstance(to);
 
-    const leave = SyntheticMouseEvent.getPooled(
-      eventTypes.mouseLeave,
+    const leave = eventInterface.getPooled(
+      leaveEventType,
       from,
       nativeEvent,
       nativeEventTarget,
     );
-    leave.type = 'mouseleave';
+    leave.type = eventTypePrefix + 'leave';
     leave.target = fromNode;
     leave.relatedTarget = toNode;
 
-    const enter = SyntheticMouseEvent.getPooled(
-      eventTypes.mouseEnter,
+    const enter = eventInterface.getPooled(
+      enterEventType,
       to,
       nativeEvent,
       nativeEventTarget,
     );
-    enter.type = 'mouseenter';
+    enter.type = eventTypePrefix + 'enter';
     enter.target = toNode;
     enter.relatedTarget = fromNode;
 
     accumulateEnterLeaveDispatches(leave, enter, from, to);
+
+    // If we are not processing the first ancestor, then we
+    // should not process the same nativeEvent again, as we
+    // will have already processed it in the first ancestor.
+    if ((eventSystemFlags & IS_FIRST_ANCESTOR) === 0) {
+      return [leave];
+    }
 
     return [leave, enter];
   },

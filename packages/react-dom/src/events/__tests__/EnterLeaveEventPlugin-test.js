@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -133,5 +133,107 @@ describe('EnterLeaveEventPlugin', () => {
     // Entering a child should fire on the child, not on the parent.
     expect(childEnterCalls).toBe(1);
     expect(parentEnterCalls).toBe(0);
+  });
+
+  // Test for https://github.com/facebook/react/issues/16763.
+  it('should call mouseEnter once from sibling rendered inside a rendered component', done => {
+    const mockFn = jest.fn();
+
+    class Parent extends React.Component {
+      constructor(props) {
+        super(props);
+        this.parentEl = React.createRef();
+      }
+
+      componentDidMount() {
+        ReactDOM.render(<MouseEnterDetect />, this.parentEl.current);
+      }
+
+      render() {
+        return <div ref={this.parentEl} />;
+      }
+    }
+
+    class MouseEnterDetect extends React.Component {
+      constructor(props) {
+        super(props);
+        this.firstEl = React.createRef();
+        this.siblingEl = React.createRef();
+      }
+
+      componentDidMount() {
+        this.siblingEl.current.dispatchEvent(
+          new MouseEvent('mouseout', {
+            bubbles: true,
+            cancelable: true,
+            relatedTarget: this.firstEl.current,
+          }),
+        );
+        expect(mockFn.mock.calls.length).toBe(1);
+        done();
+      }
+
+      render() {
+        return (
+          <React.Fragment>
+            <div ref={this.firstEl} onMouseEnter={mockFn} />
+            <div ref={this.siblingEl} />
+          </React.Fragment>
+        );
+      }
+    }
+
+    ReactDOM.render(<Parent />, container);
+  });
+
+  it('should call mouseEnter when pressing a non tracked React node', done => {
+    const mockFn = jest.fn();
+
+    class Parent extends React.Component {
+      constructor(props) {
+        super(props);
+        this.parentEl = React.createRef();
+      }
+
+      componentDidMount() {
+        ReactDOM.render(<MouseEnterDetect />, this.parentEl.current);
+      }
+
+      render() {
+        return <div ref={this.parentEl} />;
+      }
+    }
+
+    class MouseEnterDetect extends React.Component {
+      constructor(props) {
+        super(props);
+        this.divRef = React.createRef();
+        this.siblingEl = React.createRef();
+      }
+
+      componentDidMount() {
+        const attachedNode = document.createElement('div');
+        this.divRef.current.appendChild(attachedNode);
+        attachedNode.dispatchEvent(
+          new MouseEvent('mouseout', {
+            bubbles: true,
+            cancelable: true,
+            relatedTarget: this.siblingEl.current,
+          }),
+        );
+        expect(mockFn.mock.calls.length).toBe(1);
+        done();
+      }
+
+      render() {
+        return (
+          <div ref={this.divRef}>
+            <div ref={this.siblingEl} onMouseEnter={mockFn} />
+          </div>
+        );
+      }
+    }
+
+    ReactDOM.render(<Parent />, container);
   });
 });

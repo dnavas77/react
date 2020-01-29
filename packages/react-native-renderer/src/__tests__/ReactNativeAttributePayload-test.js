@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -230,5 +230,45 @@ describe('ReactNativeAttributePayload', () => {
         {a: true, b: true, c: true},
       ),
     ).toEqual({a: null, c: true});
+  });
+
+  it('should skip changed functions', () => {
+    expect(
+      diff(
+        {
+          a: function() {
+            return 1;
+          },
+        },
+        {
+          a: function() {
+            return 9;
+          },
+        },
+        {a: true},
+      ),
+    ).toEqual(null);
+  });
+
+  it('should skip deeply-nested changed functions', () => {
+    expect(
+      diff(
+        {
+          wrapper: {
+            a: function() {
+              return 1;
+            },
+          },
+        },
+        {
+          wrapper: {
+            a: function() {
+              return 9;
+            },
+          },
+        },
+        {wrapper: true},
+      ),
+    ).toEqual(null);
   });
 });

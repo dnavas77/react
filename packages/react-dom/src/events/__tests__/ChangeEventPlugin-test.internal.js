@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -9,9 +9,11 @@
 
 'use strict';
 
-const React = require('react');
+let React = require('react');
 let ReactDOM = require('react-dom');
+let TestUtils = require('react-dom/test-utils');
 let ReactFeatureFlags;
+let Scheduler;
 
 const setUntrackedChecked = Object.getOwnPropertyDescriptor(
   HTMLInputElement.prototype,
@@ -32,15 +34,10 @@ describe('ChangeEventPlugin', () => {
   let container;
 
   beforeEach(() => {
+    ReactFeatureFlags = require('shared/ReactFeatureFlags');
     // TODO pull this into helper method, reduce repetition.
-    // mock the browser APIs which are used in react-scheduler:
-    // - requestAnimationFrame should pass the DOMHighResTimeStamp argument
+    // mock the browser APIs which are used in schedule:
     // - calling 'window.postMessage' should actually fire postmessage handlers
-    global.requestAnimationFrame = function(cb) {
-      return setTimeout(() => {
-        cb(Date.now());
-      });
-    };
     const originalAddEventListener = global.addEventListener;
     let postMessageCallback;
     global.addEventListener = function(eventName, callback, useCapture) {
@@ -87,8 +84,14 @@ describe('ChangeEventPlugin', () => {
     );
     node.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
     node.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
-    // There should be no React change events because the value stayed the same.
-    expect(called).toBe(0);
+
+    if (ReactFeatureFlags.disableInputAttributeSyncing) {
+      // TODO: figure out why. This might be a bug.
+      expect(called).toBe(1);
+    } else {
+      // There should be no React change events because the value stayed the same.
+      expect(called).toBe(0);
+    }
   });
 
   it('should consider initial checkbox checked=true to be current', () => {
@@ -247,9 +250,7 @@ describe('ChangeEventPlugin', () => {
     input.checked = true;
     // Under the hood, uncheck the box so that the click will "check" it again.
     setUntrackedChecked.call(input, false);
-    input.dispatchEvent(
-      new MouseEvent('click', {bubbles: true, cancelable: true}),
-    );
+    input.click();
     expect(input.checked).toBe(true);
     // We don't expect a React event because at the time of the click, the real
     // checked value (true) was the same as the last recorded "current" value
@@ -258,7 +259,7 @@ describe('ChangeEventPlugin', () => {
 
     // However, simulating a normal click should fire a React event because the
     // real value (false) would have changed from the last tracked value (true).
-    input.dispatchEvent(new Event('click', {bubbles: true, cancelable: true}));
+    input.click();
     expect(called).toBe(1);
   });
 
@@ -312,24 +313,18 @@ describe('ChangeEventPlugin', () => {
     const option2 = div.childNodes[1];
 
     // Select first option.
-    option1.dispatchEvent(
-      new Event('click', {bubbles: true, cancelable: true}),
-    );
+    option1.click();
     expect(called1).toBe(1);
     expect(called2).toBe(0);
 
     // Select second option.
-    option2.dispatchEvent(
-      new Event('click', {bubbles: true, cancelable: true}),
-    );
+    option2.click();
     expect(called1).toBe(1);
     expect(called2).toBe(1);
 
     // Select the first option.
     // It should receive the React change event again.
-    option1.dispatchEvent(
-      new Event('click', {bubbles: true, cancelable: true}),
-    );
+    option1.click();
     expect(called1).toBe(2);
     expect(called2).toBe(1);
   });
@@ -471,16 +466,19 @@ describe('ChangeEventPlugin', () => {
     }
   });
 
-  describe('async mode', () => {
+  describe('concurrent mode', () => {
     beforeEach(() => {
       jest.resetModules();
       ReactFeatureFlags = require('shared/ReactFeatureFlags');
       ReactFeatureFlags.debugRenderPhaseSideEffectsForStrictMode = false;
-      ReactFeatureFlags.debugRenderPhaseSideEffectsForStrictMode = false;
+      React = require('react');
       ReactDOM = require('react-dom');
+      TestUtils = require('react-dom/test-utils');
+      Scheduler = require('scheduler');
     });
-    it('text input', () => {
-      const root = ReactDOM.unstable_createRoot(container);
+
+    it.experimental('text input', () => {
+      const root = ReactDOM.createRoot(container);
       let input;
 
       let ops = [];
@@ -509,7 +507,7 @@ describe('ChangeEventPlugin', () => {
       expect(ops).toEqual([]);
       expect(input).toBe(undefined);
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       expect(ops).toEqual(['render: initial']);
       expect(input.value).toBe('initial');
 
@@ -526,8 +524,8 @@ describe('ChangeEventPlugin', () => {
       expect(input.value).toBe('changed [!]');
     });
 
-    it('checkbox input', () => {
-      const root = ReactDOM.unstable_createRoot(container);
+    it.experimental('checkbox input', () => {
+      const root = ReactDOM.createRoot(container);
       let input;
 
       let ops = [];
@@ -559,7 +557,7 @@ describe('ChangeEventPlugin', () => {
       expect(ops).toEqual([]);
       expect(input).toBe(undefined);
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       expect(ops).toEqual(['render: false']);
       expect(input.checked).toBe(false);
 
@@ -575,7 +573,7 @@ describe('ChangeEventPlugin', () => {
 
       // Now let's make sure we're using the controlled value.
       root.render(<ControlledInput reverse={true} />);
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
 
       ops = [];
 
@@ -588,8 +586,8 @@ describe('ChangeEventPlugin', () => {
       expect(input.checked).toBe(false);
     });
 
-    it('textarea', () => {
-      const root = ReactDOM.unstable_createRoot(container);
+    it.experimental('textarea', () => {
+      const root = ReactDOM.createRoot(container);
       let textarea;
 
       let ops = [];
@@ -618,7 +616,7 @@ describe('ChangeEventPlugin', () => {
       expect(ops).toEqual([]);
       expect(textarea).toBe(undefined);
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       expect(ops).toEqual(['render: initial']);
       expect(textarea.value).toBe('initial');
 
@@ -635,8 +633,8 @@ describe('ChangeEventPlugin', () => {
       expect(textarea.value).toBe('changed [!]');
     });
 
-    it('parent of input', () => {
-      const root = ReactDOM.unstable_createRoot(container);
+    it.experimental('parent of input', () => {
+      const root = ReactDOM.createRoot(container);
       let input;
 
       let ops = [];
@@ -655,7 +653,7 @@ describe('ChangeEventPlugin', () => {
                 type="text"
                 value={controlledValue}
                 onChange={() => {
-                  // Does nothing. Parent handler is reponsible for updating.
+                  // Does nothing. Parent handler is responsible for updating.
                 }}
               />
             </div>
@@ -669,7 +667,7 @@ describe('ChangeEventPlugin', () => {
       expect(ops).toEqual([]);
       expect(input).toBe(undefined);
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       expect(ops).toEqual(['render: initial']);
       expect(input.value).toBe('initial');
 
@@ -686,8 +684,8 @@ describe('ChangeEventPlugin', () => {
       expect(input.value).toBe('changed [!]');
     });
 
-    it('is async for non-input events', () => {
-      const root = ReactDOM.unstable_createRoot(container);
+    it.experimental('is async for non-input events', () => {
+      const root = ReactDOM.createRoot(container);
       let input;
 
       let ops = [];
@@ -720,7 +718,7 @@ describe('ChangeEventPlugin', () => {
       expect(ops).toEqual([]);
       expect(input).toBe(undefined);
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       expect(ops).toEqual(['render: initial']);
       expect(input.value).toBe('initial');
 
@@ -735,10 +733,55 @@ describe('ChangeEventPlugin', () => {
       expect(input.value).toBe('initial');
 
       // Flush callbacks.
-      jest.runAllTimers();
+      Scheduler.unstable_flushAll();
       // Now the click update has flushed.
       expect(ops).toEqual(['render: ']);
       expect(input.value).toBe('');
     });
+
+    it.experimental(
+      'mouse enter/leave should be user-blocking but not discrete',
+      async () => {
+        // This is currently behind a feature flag
+        jest.resetModules();
+        React = require('react');
+        ReactDOM = require('react-dom');
+        TestUtils = require('react-dom/test-utils');
+        Scheduler = require('scheduler');
+
+        const {act} = TestUtils;
+        const {useState} = React;
+
+        const root = ReactDOM.createRoot(container);
+
+        const target = React.createRef(null);
+        function Foo() {
+          const [isHover, setHover] = useState(false);
+          return (
+            <div
+              ref={target}
+              onMouseEnter={() => setHover(true)}
+              onMouseLeave={() => setHover(false)}>
+              {isHover ? 'hovered' : 'not hovered'}
+            </div>
+          );
+        }
+
+        await act(async () => {
+          root.render(<Foo />);
+        });
+        expect(container.textContent).toEqual('not hovered');
+
+        await act(async () => {
+          const mouseOverEvent = document.createEvent('MouseEvents');
+          mouseOverEvent.initEvent('mouseover', true, true);
+          target.current.dispatchEvent(mouseOverEvent);
+
+          // 3s should be enough to expire the updates
+          Scheduler.unstable_advanceTime(3000);
+          expect(container.textContent).toEqual('hovered');
+        });
+      },
+    );
   });
 });

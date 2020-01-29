@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -16,17 +16,20 @@ const TEXT_NODE_TYPE = 3;
 let React;
 let ReactDOM;
 let ReactDOMServer;
+let ReactTestUtils;
 
 function initModules() {
   jest.resetModuleRegistry();
   React = require('react');
   ReactDOM = require('react-dom');
   ReactDOMServer = require('react-dom/server');
+  ReactTestUtils = require('react-dom/test-utils');
 
   // Make them available to the helpers.
   return {
     ReactDOM,
     ReactDOMServer,
+    ReactTestUtils,
   };
 }
 
@@ -36,6 +39,7 @@ const {
   itThrowsWhenRendering,
   serverRender,
   streamRender,
+  clientCleanRender,
   clientRenderOnServerString,
 } = ReactDOMServerIntegrationUtils(initModules);
 
@@ -142,7 +146,7 @@ describe('ReactDOMServerIntegration', () => {
         // so that it gets deduplicated later, and doesn't fail the test.
         expect(() => {
           ReactDOM.render(<nonstandard />, document.createElement('div'));
-        }).toWarnDev('The tag <nonstandard> is unrecognized in this browser.');
+        }).toErrorDev('The tag <nonstandard> is unrecognized in this browser.');
 
         const e = await render(<nonstandard>Text</nonstandard>);
         expect(e.tagName).toBe('NONSTANDARD');
@@ -254,8 +258,7 @@ describe('ReactDOMServerIntegration', () => {
           <div>
             {[['a'], 'b']}
             <div>
-              <X key="1" />
-              d
+              <X key="1" />d
             </div>
             e
           </div>,
@@ -485,14 +488,119 @@ describe('ReactDOMServerIntegration', () => {
       expect(e.tagName).toBe('BUTTON');
     });
 
-    itRenders('a div with dangerouslySetInnerHTML', async render => {
-      const e = await render(
-        <div dangerouslySetInnerHTML={{__html: "<span id='child'/>"}} />,
-      );
+    itRenders('a div with dangerouslySetInnerHTML number', async render => {
+      // Put dangerouslySetInnerHTML one level deeper because otherwise
+      // hydrating from a bad markup would cause a mismatch (since we don't
+      // patch dangerouslySetInnerHTML as text content).
+      const e = (
+        await render(
+          <div>
+            <span dangerouslySetInnerHTML={{__html: 0}} />
+          </div>,
+        )
+      ).firstChild;
+      expect(e.childNodes.length).toBe(1);
+      expect(e.firstChild.nodeType).toBe(TEXT_NODE_TYPE);
+      expect(e.textContent).toBe('0');
+    });
+
+    itRenders('a div with dangerouslySetInnerHTML boolean', async render => {
+      // Put dangerouslySetInnerHTML one level deeper because otherwise
+      // hydrating from a bad markup would cause a mismatch (since we don't
+      // patch dangerouslySetInnerHTML as text content).
+      const e = (
+        await render(
+          <div>
+            <span dangerouslySetInnerHTML={{__html: false}} />
+          </div>,
+        )
+      ).firstChild;
+      expect(e.childNodes.length).toBe(1);
+      expect(e.firstChild.nodeType).toBe(TEXT_NODE_TYPE);
+      expect(e.firstChild.data).toBe('false');
+    });
+
+    itRenders(
+      'a div with dangerouslySetInnerHTML text string',
+      async render => {
+        // Put dangerouslySetInnerHTML one level deeper because otherwise
+        // hydrating from a bad markup would cause a mismatch (since we don't
+        // patch dangerouslySetInnerHTML as text content).
+        const e = (
+          await render(
+            <div>
+              <span dangerouslySetInnerHTML={{__html: 'hello'}} />
+            </div>,
+          )
+        ).firstChild;
+        expect(e.childNodes.length).toBe(1);
+        expect(e.firstChild.nodeType).toBe(TEXT_NODE_TYPE);
+        expect(e.textContent).toBe('hello');
+      },
+    );
+
+    itRenders(
+      'a div with dangerouslySetInnerHTML element string',
+      async render => {
+        const e = await render(
+          <div dangerouslySetInnerHTML={{__html: "<span id='child'/>"}} />,
+        );
+        expect(e.childNodes.length).toBe(1);
+        expect(e.firstChild.tagName).toBe('SPAN');
+        expect(e.firstChild.getAttribute('id')).toBe('child');
+        expect(e.firstChild.childNodes.length).toBe(0);
+      },
+    );
+
+    itRenders('a div with dangerouslySetInnerHTML object', async render => {
+      const obj = {
+        toString() {
+          return "<span id='child'/>";
+        },
+      };
+      const e = await render(<div dangerouslySetInnerHTML={{__html: obj}} />);
       expect(e.childNodes.length).toBe(1);
       expect(e.firstChild.tagName).toBe('SPAN');
       expect(e.firstChild.getAttribute('id')).toBe('child');
       expect(e.firstChild.childNodes.length).toBe(0);
+    });
+
+    itRenders(
+      'a div with dangerouslySetInnerHTML set to null',
+      async render => {
+        const e = await render(
+          <div dangerouslySetInnerHTML={{__html: null}} />,
+        );
+        expect(e.childNodes.length).toBe(0);
+      },
+    );
+
+    itRenders(
+      'a div with dangerouslySetInnerHTML set to undefined',
+      async render => {
+        const e = await render(
+          <div dangerouslySetInnerHTML={{__html: undefined}} />,
+        );
+        expect(e.childNodes.length).toBe(0);
+      },
+    );
+
+    itRenders('a noscript with children', async render => {
+      const e = await render(
+        <noscript>
+          <div>Enable JavaScript to run this app.</div>
+        </noscript>,
+      );
+      if (render === clientCleanRender) {
+        // On the client we ignore the contents of a noscript
+        expect(e.childNodes.length).toBe(0);
+      } else {
+        // On the server or when hydrating the content should be correct
+        expect(e.childNodes.length).toBe(1);
+        expect(e.firstChild.textContent).toBe(
+          '<div>Enable JavaScript to run this app.</div>',
+        );
+      }
     });
 
     describe('newline-eating elements', function() {
@@ -523,8 +631,8 @@ describe('ReactDOMServerIntegration', () => {
       }
 
       itRenders('stateless components', async render => {
-        const StatelessComponent = () => <div>foo</div>;
-        checkFooDiv(await render(<StatelessComponent />));
+        const FunctionComponent = () => <div>foo</div>;
+        checkFooDiv(await render(<FunctionComponent />));
       });
 
       itRenders('ES6 class components', async render => {
@@ -544,11 +652,11 @@ describe('ReactDOMServerIntegration', () => {
             },
           };
         };
-        checkFooDiv(await render(<FactoryComponent />));
+        checkFooDiv(await render(<FactoryComponent />, 1));
       });
     });
 
-    describe('component hierarchies', async function() {
+    describe('component hierarchies', function() {
       itRenders('single child hierarchies of components', async render => {
         const Component = props => <div>{props.children}</div>;
         let e = await render(
@@ -879,12 +987,13 @@ describe('ReactDOMServerIntegration', () => {
           let EmptyComponent = {};
           expect(() => {
             EmptyComponent = <EmptyComponent />;
-          }).toWarnDev(
+          }).toErrorDev(
             'Warning: React.createElement: type is invalid -- expected a string ' +
               '(for built-in components) or a class/function (for composite ' +
               'components) but got: object. You likely forgot to export your ' +
               "component from the file it's defined in, or you might have mixed up " +
               'default and named imports.',
+            {withoutStack: true},
           );
           await render(EmptyComponent);
         },
@@ -902,10 +1011,11 @@ describe('ReactDOMServerIntegration', () => {
           let NullComponent = null;
           expect(() => {
             NullComponent = <NullComponent />;
-          }).toWarnDev(
+          }).toErrorDev(
             'Warning: React.createElement: type is invalid -- expected a string ' +
               '(for built-in components) or a class/function (for composite ' +
               'components) but got: null.',
+            {withoutStack: true},
           );
           await render(NullComponent);
         },
@@ -919,12 +1029,13 @@ describe('ReactDOMServerIntegration', () => {
           let UndefinedComponent = undefined;
           expect(() => {
             UndefinedComponent = <UndefinedComponent />;
-          }).toWarnDev(
+          }).toErrorDev(
             'Warning: React.createElement: type is invalid -- expected a string ' +
               '(for built-in components) or a class/function (for composite ' +
               'components) but got: undefined. You likely forgot to export your ' +
               "component from the file it's defined in, or you might have mixed up " +
               'default and named imports.',
+            {withoutStack: true},
           );
 
           await render(UndefinedComponent);

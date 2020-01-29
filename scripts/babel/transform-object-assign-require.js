@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7,12 +7,16 @@
 
 'use strict';
 
+const helperModuleImports = require('@babel/helper-module-imports');
+
 module.exports = function autoImporter(babel) {
   function getAssignIdent(path, file, state) {
     if (state.id) {
       return state.id;
     }
-    state.id = file.addImport('object-assign', 'default', 'assign');
+    state.id = helperModuleImports.addDefault(path, 'object-assign', {
+      nameHint: 'assign',
+    });
     return state.id;
   }
 
